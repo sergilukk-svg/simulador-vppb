@@ -142,6 +142,10 @@ function sample(k,s,oP,oT){const c=P[k];let lo=0,hi=c.cum.length-1;
   while(hi-lo>1){const m=(lo+hi)>>1;if(c.cum[m]<=s)lo=m;else hi=m}
   const f=THREE.MathUtils.clamp((s-c.cum[lo])/Math.max(1e-6,c.cum[hi]-c.cum[lo]),0,1);
   oP.copy(c.pts[lo]).lerp(c.pts[hi],f);if(oT)oT.copy(c.tan[lo]).lerp(c.tan[hi],f).normalize()}
+const CN={};for(const k of CANALS)CN[k]={n:new V3(...D.canal[k].n),Rc:D.canal[k].Rc};
+const U={};for(const k of CANALS)U[k]=0;
+const S_F=1.5, TAUB=.25, W_ON=120*Math.PI/180, W_OFF=1.2; // embudo ampular (unidades), frenada: pico >120°/s y parada
+const qPrev=new Q(),wv=new V3(),wPeak=new V3();let wPeakT=0,havePrev=false,wMag=0;
 const UTRC={Left:new V3(8.073,-1.258,1.302),Right:new V3(-8.073,-1.258,1.302)};
 
 /* ---------- otoconias ---------- */
@@ -149,14 +153,14 @@ const MAXP=400, parts=[];
 const stoneGeo=new THREE.OctahedronGeometry(1,0);stoneGeo.scale(1,1.7,1);
 const stones=new THREE.InstancedMesh(stoneGeo,new THREE.MeshBasicMaterial({color:0x000000,depthWrite:false,transparent:true}),MAXP);
 stones.count=0;stones.frustumCulled=false;stones.renderOrder=10;head.add(stones);
-function addStone(canal,s){if(parts.length>=MAXP)return;const r=.012+Math.random()*.016;
+function addStone(canal,s,stuck){if(parts.length>=MAXP)return;const r=.012+Math.random()*.016;
   parts.push({canal,s:THREE.MathUtils.clamp(s,.1,P[canal].L-.2),r,vt:.35*Math.pow(r/.028,2)*(.8+Math.random()*.4),jit:Math.random()*2-1,
-    q:new Q().setFromEuler(new THREE.Euler(Math.random()*6.3,Math.random()*6.3,Math.random()*6.3)),sq:new V3(.8+Math.random()*.4,.8+Math.random()*.4,.8+Math.random()*.4),state:'canal',v:0})}
-function addCluster(canal,s,n){for(let i=0;i<n;i++)addStone(canal,s+(Math.random()*2-1)*.18)}
+    q:new Q().setFromEuler(new THREE.Euler(Math.random()*6.3,Math.random()*6.3,Math.random()*6.3)),sq:new V3(.8+Math.random()*.4,.8+Math.random()*.4,.8+Math.random()*.4),state:'canal',v:0,stuck:!!stuck,adh:.5+Math.random()})}
+function addCluster(canal,s,n,stuck){for(let i=0;i<n;i++)addStone(canal,s+(Math.random()*2-1)*.18,stuck)}
 function lowestS(k,qh,f0,f1){f0=f0||0;f1=f1||.6; // punto más bajo del canal (primer 60 %, brazo ampular) con la postura indicada
   const g=new V3(0,-1,0).applyQuaternion(qh.clone().invert()),p=new V3();let best=Math.max(.3,P[k].L*f0),lo=1e9;
   for(let s=Math.max(.3,P[k].L*f0);s<P[k].L*f1;s+=.05){sample(k,s,p);const h=-p.dot(g);if(h<lo){lo=h;best=s}}return best}
-function seed(){parts.length=0;const k=st.side+'_'+CK();addCluster(k,st.canal==='LateralApo'?.7:lowestS(k,new Q(),st.canal==='Lateral'?.45:0,st.canal==='Lateral'?.9:.6),14)}
+function seed(){parts.length=0;const k=st.side+'_'+CK();addCluster(k,st.canal==='LateralApo'?.7:lowestS(k,new Q(),st.canal==='Lateral'?.45:0,st.canal==='Lateral'?.9:.6),14,st.canal==='LateralApo')}
 
 /* ---------- postura ---------- */
 const qDev=new Q(),qHead=new Q(),qTouch=new Q(),qYaw=new Q(),q1=new Q(-Math.sqrt(.5),0,0,Math.sqrt(.5)),q0=new Q(),eul=new THREE.Euler(),Z=new V3(0,0,1),Y=new V3(0,1,0);
@@ -164,21 +168,25 @@ let sensor=false,needYaw=true,touchMode=false,started=false;
 function onOri(e){if(e.beta==null)return;sensor=true;
   const o=((screen.orientation&&screen.orientation.angle)||window.orientation||0)*D2R;
   eul.set((e.beta||0)*D2R,(e.alpha||0)*D2R,-(e.gamma||0)*D2R,'YXZ');qDev.setFromEuler(eul).multiply(q1).multiply(q0.setFromAxisAngle(Z,-o));
-  if(needYaw){recenter();needYaw=false}}
+  if(needYaw){recenter();needYaw=false}
+  angVel(new Q().copy(qYaw).multiply(qDev),performance.now())}
 function recenter(){if(touchMode){qTouch.identity();return}
   const f=new V3(0,0,1).applyQuaternion(qDev);if(Math.abs(f.y)>.85)f.set(0,1,0).applyQuaternion(qDev).negate();
   qYaw.setFromAxisAngle(Y,-Math.atan2(f.x,f.z))}
 
 /* ---------- física (misma que el simulador de escritorio) ---------- */
 const gL=new V3(),tp=new V3(),tt=new V3(),gp=new V3(),e2=new V3(),pos=new V3(),mtx=new THREE.Matrix4(),sc=new V3();
-let flowV=0;
+let flowV=0,released=0;
 function step(dt){
   gL.set(0,-1,0).applyQuaternion(qHead.clone().invert());
+  for(const k of CANALS)U[k]-=U[k]/TAUB*dt;
   let sum=0,n=0;const sel=st.side+'_'+CK();
   for(const p of parts){
     if(p.state==='transit'){const tgt=UTRC[p.side].clone().add(p.uo),d=Math.max(.05,p.from.distanceTo(tgt));p.k=Math.min(1,p.k+p.vt*.6*dt/d);if(p.k>=1)p.state='utr';continue}
     if(p.state!=='canal')continue;
     sample(p.canal,p.s,tp,tt);const gt=gL.dot(tt);
+    if(p.stuck){ // embudo ampular: se desliza despacio pegada a la pared y no sale sola
+      {p.v=Math.abs(gt)>.15?.3*p.vt*gt:0;p.s=THREE.MathUtils.clamp(p.s+p.v*dt,.05,S_F);if(p.canal===sel){sum+=p.v;n++}continue}}
     p.v=Math.abs(gt)>.03?p.vt*gt:0;p.s+=p.v*dt;if(p.s<.05)p.s=.05; // la cúpula bloquea el paso
     if(p.canal===sel){sum+=p.v;n++}
     if(p.s>=P[p.canal].L-.03){p.state='transit';p.k=0;p.side=p.canal.split('_')[0];
@@ -264,12 +272,26 @@ addEventListener('pointerup',e=>{const d=down;down=null;if(!d||d.moved||!ready||
   for(const k of CANALS){if(!k.startsWith(sd))continue;for(let s=.1;s<P[k].L-.2;s+=.05){sample(k,s,p);const dd=p.distanceTo(lp);if(dd<bd){bd=dd;best=[k,s]}}}
   if(best&&bd<.6){addCluster(best[0],best[1],8);toast('Otoconias añadidas en el canal '+ES[best[0].split('_')[1]],1500)}});
 
+function angVel(qh,now){const dt=(now-(angVel.t||now))/1000;angVel.t=now;
+  if(havePrev&&dt>0){const dq=qPrev.clone().invert().multiply(qh);if(dq.w<0){dq.x=-dq.x;dq.y=-dq.y;dq.z=-dq.z;dq.w=-dq.w}
+    const ang=2*Math.acos(Math.min(1,dq.w)),ax=new V3(dq.x,dq.y,dq.z);if(ax.lengthSq()>1e-12)ax.normalize();
+    wv.lerp(ax.multiplyScalar(ang/dt),.65);wMag=wv.length();
+    if(wMag>W_ON&&wMag>wPeak.length()){wPeak.copy(wv);wPeakT=now}
+    if(wPeak.lengthSq()>0){if(now-wPeakT>500)wPeak.set(0,0,0);
+      else if(wMag<W_OFF){ // frenada brusca
+        const w=wPeak.length(),a=wPeak.clone().normalize();wPeak.set(0,0,0);
+        const gH=new V3(0,-1,0).applyQuaternion(qh.clone().invert()),ear=new V3(st.side==='Right'?-1:1,0,0);
+        if(Math.abs(a.z)>.7&&gH.dot(ear)>.7){ // caída de lado sobre el oído afectado (giro sobre el eje nariz-nuca)
+          let r=0;for(const p of parts)if(p.state==='canal'&&p.stuck&&p.canal.startsWith(st.side)&&w/D2R>100+(p.adh-.5)*150){p.stuck=false;r++}
+          toast(r?`Caída brusca (${Math.round(w/D2R)}°/s) → ${r} otoconias liberadas del embudo ampular`:`Caída brusca (${Math.round(w/D2R)}°/s): no se ha liberado ninguna`,2500)}}}}
+  qPrev.copy(qh);havePrev=true}
 /* ---------- bucle ---------- */
 let last=performance.now(),uiT=0;
 function frame(now){
   const dt=Math.min(.1,(now-last)/1000);last=now;
   if(touchMode)qHead.copy(qTouch);else qHead.copy(qYaw).multiply(qDev);
   head.quaternion.copy(qHead);head.updateMatrixWorld();
+  if(touchMode)angVel(qHead,now);
   let v=0;if(ready){const sp=SPEEDS[st.spd];let rem=dt*sp;while(rem>0){const h=Math.min(.02,rem);v=step(h);rem-=h}draw()}
   flowV+=(v-flowV)*(1-Math.exp(-dt/.3));
   const w=innerWidth,h=innerHeight;R.setSize(w,h,false);split=Math.round(w*(w>h?.34:.4));
@@ -289,7 +311,8 @@ function frame(now){
     const m=THREE.MathUtils.clamp(flowV/.15,-1,1),mi=$('#mi');mi.style.width=Math.abs(m)*50+'%';mi.style.left=m<0?(50+m*50)+'%':'50%';
     $('#ny').innerHTML=nyText(flowV);
     const sel=st.side+'_'+CK(),inC=parts.filter(p=>p.state==='canal').length,inS=parts.filter(p=>p.state==='canal'&&p.canal===sel).length,o=$('#otos');
-    o.textContent=parts.length&&!inC?'Canales libres: otoconias en el utrículo ✓':`En el canal ${ES[CK()]}: ${inS} · otros canales: ${inC-inS} · utrículo: ${parts.length-inC}`;o.classList.toggle('ok',parts.length>0&&!inC)}
+    const stk=parts.filter(p=>p.state==='canal'&&p.stuck).length;
+    o.textContent=parts.length&&!inC?'Canales libres: otoconias en el utrículo ✓':`En el canal ${ES[CK()]}: ${inS}${stk?` (${stk} en el embudo ampular)`:''} · otros canales: ${inC-inS} · utrículo: ${parts.length-inC}`;o.classList.toggle('ok',parts.length>0&&!inC)}
   requestAnimationFrame(frame)}
 
 /* ---------- inicio y botones ---------- */
@@ -307,7 +330,7 @@ $('#go').addEventListener('click',()=>{
   setTimeout(()=>{if(!sensor){touchMode=true;toast('Sin sensores de movimiento: arrastra con el dedo para girar la cabeza.',5000)}},1500)});
 $('#bMenu').addEventListener('click',()=>{$('#start').style.display='';$('#rot').classList.remove('need');started=false});
 $('#bRst').addEventListener('click',()=>{seed();toast('Otoconias reiniciadas',1500)});
-$('#bAdd').addEventListener('click',()=>{const k=st.side+'_'+CK();const apo=st.canal==='LateralApo',geo=st.canal==='Lateral';addCluster(k,apo?.7:lowestS(k,qHead,geo?.45:0,geo?.9:.6),8);toast(apo?'Otoconias añadidas en el brazo anterior':geo?'Otoconias añadidas en el brazo posterior':'Otoconias añadidas en la parte más baja del canal',1500)});
+$('#bAdd').addEventListener('click',()=>{const k=st.side+'_'+CK();const apo=st.canal==='LateralApo',geo=st.canal==='Lateral';addCluster(k,apo?.7:lowestS(k,qHead,geo?.45:0,geo?.9:.6),8,apo);toast(apo?'Otoconias añadidas en el brazo anterior':geo?'Otoconias añadidas en el brazo posterior':'Otoconias añadidas en la parte más baja del canal',1500)});
 $('#bCen').addEventListener('click',()=>{recenter();toast(touchMode?'Cabeza erguida':'Recentrado: posición actual = mirando al frente',1800)});
 $('#bHead').addEventListener('click',()=>{shellMode=(shellMode+1)%3;$('#bHead').textContent='Cabeza: '+['piel','cráneo','oculta'][shellMode]});
 $('#bView').addEventListener('click',()=>{st.view=(st.view+1)%VIEWS.length;setLabels()});
