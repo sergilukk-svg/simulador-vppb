@@ -64,7 +64,7 @@ button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:7
 <div class="hud" id="tl"><span class="chip" id="lbl">Oído derecho · Posterior</span><div id="pos">—</div><div id="tilt"></div></div>
 <div class="hud" id="tr">
   <button id="bAdd">+ Otoconias</button><button id="bRst">Reiniciar</button><button id="bView">Vista: lateral</button>
-  <button id="bZoom">Zoom 1×</button><button id="bSpd">Velocidad ×5</button><button id="bCen">Recentrar</button><button id="bMenu">Cambiar</button>
+  <button id="bZoom">Zoom 1×</button><button id="bSpd">Velocidad ×5</button><button id="bHead">Cabeza: piel</button><button id="bCen">Recentrar</button><button id="bMenu">Cambiar</button>
 </div>
 <div class="hud" id="bl"><div class="card">
   <div class="ml"><span>Ampulípeto</span><span>Cúpula</span><span>Ampulífugo</span></div>
@@ -126,8 +126,8 @@ const head=new THREE.Group();scene.add(head);
 const camH=new THREE.PerspectiveCamera(32,1,.5,500), camL=new THREE.PerspectiveCamera(30,1,.05,500);
 const M=(c,o)=>new THREE.MeshStandardMaterial({color:c,roughness:.45,metalness:0,transparent:o<1,opacity:o,depthWrite:o>=1,side:THREE.DoubleSide});
 const COL={Posterior:0xff8a1f,Anterior:0x22c55e,Lateral:0xa855f7,Crus:0x14b8a6};
-const mats={Posterior:M(COL.Posterior,.36),Anterior:M(COL.Anterior,.36),Lateral:M(COL.Lateral,.36),Crus:M(COL.Crus,.36),Utr:M(0x94a3b8,.3),Organs:M(0xcbd5e1,.22),skin:M(0xe2b8a0,.1)};
-const skin=[],sideObjs=[],pick=[],BOX={};
+const mats={Posterior:M(COL.Posterior,.36),Anterior:M(COL.Anterior,.36),Lateral:M(COL.Lateral,.36),Crus:M(COL.Crus,.36),Utr:M(0x94a3b8,.3),Organs:M(0xcbd5e1,.22),skin:M(0xe8c3a8,.2),bone:M(0xf2ead8,.32)};
+const SHELL={k:3.5,dy:.3,dz:1.2},shellSkin=[],shellSkull=[];let shellMode=0;const skin=[],sideObjs=[],pick=[],BOX={};
 
 /* ---------- canales ---------- */
 const CANALS=['Right_Posterior','Left_Posterior','Right_Anterior','Left_Anterior','Right_Lateral','Left_Lateral'];
@@ -215,10 +215,10 @@ loader.parse(bin.buffer,'',g=>{
   const cris=[];
   g.scene.traverse(o=>{if(!o.isMesh)return;const n=o.name,geo=o.geometry;
     if(geo.attributes.color)geo.deleteAttribute('color');geo.deleteAttribute('normal');geo.computeVertexNormals();
-    if(n.startsWith('ORIG')||/Skull/.test(n)){o.visible=false;return}
+    if(n.startsWith('ORIG')){o.visible=false;return}
+    if(/Skull|Skin/.test(n)){const sk=/Skin/.test(n);o.material=sk?mats.skin:mats.bone;o.scale.setScalar(SHELL.k);o.position.set(0,SHELL.dy,SHELL.dz);o.renderOrder=1;(sk?shellSkin:shellSkull).push(o);return}
     let m;
-    if(/Skin/.test(n)){o.visible=false;return}
-    else if(/Crista/.test(n)){cris.push(o);return}
+    if(/Crista/.test(n)){cris.push(o);return}
     else if(/Common_Crus/.test(n))m=mats.Crus;
     else if(/Posterior/.test(n))m=mats.Posterior;
     else if(/Anterior/.test(n))m=mats.Anterior;
@@ -237,13 +237,7 @@ loader.parse(bin.buffer,'',g=>{
   head.add(g.scene);head.updateMatrixWorld(true);
   for(const sd of ['Left','Right']){const b=new THREE.Box3();for(const it of sideObjs)if(it.side===sd&&it.o.isMesh&&it.o.geometry.type==='BufferGeometry')b.expandByObject(it.o);
     BOX[sd]={c:b.getCenter(new V3()),d:b.getSize(new V3()).length()}}
-  const hb=new THREE.Box3();sideObjs.forEach(it=>{if(it.o.isMesh&&it.o.geometry.type==='BufferGeometry')hb.expandByObject(it.o)});{const c=hb.getCenter(new V3()),S=14.5,sk=new THREE.MeshStandardMaterial({color:0xe2b8a0,roughness:.75,transparent:true,opacity:.16,depthWrite:false,side:THREE.DoubleSide}),g=new THREE.Group();
-    const cr=new THREE.Mesh(new THREE.SphereGeometry(1,48,32),sk);cr.scale.set(.88,1,1.02);g.add(cr);
-    const no=new THREE.Mesh(new THREE.ConeGeometry(.12,.32,20),sk);no.rotation.x=Math.PI/2;no.position.set(0,-.08,1.06);g.add(no);
-    const em=new THREE.MeshStandardMaterial({color:0x1b2730,transparent:true,opacity:.6});[-.32,.32].forEach(x=>{const e=new THREE.Mesh(new THREE.SphereGeometry(.07,16,12),em);e.position.set(x,.12,.93);g.add(e)});
-    [-1,1].forEach(x=>{const e=new THREE.Mesh(new THREE.SphereGeometry(1,20,14),sk);e.scale.set(.08,.22,.14);e.position.set(x*.89,-.05,-.02);g.add(e)});
-    g.scale.setScalar(S);g.position.set(0,c.y+3.5,c.z+1.5);g.renderOrder=1;head.add(g);skin.push(g);
-    BOX.head={c:new V3(0,c.y+2,c.z),d:S*2.6}}
+  const hb=new THREE.Box3();sideObjs.forEach(it=>{if(it.o.isMesh&&it.o.geometry.type==='BufferGeometry')hb.expandByObject(it.o)});{const sb=new THREE.Box3();shellSkin.forEach(o=>sb.expandByObject(o));BOX.head={c:sb.getCenter(new V3()),d:sb.getSize(new V3()).length()}}
   $('#load').remove();ready=true;
 },()=>{$('#load').textContent='No se pudo cargar el modelo.'});
 let ready=false;
@@ -280,11 +274,11 @@ function frame(now){
   if(ready){
     const lat=st.side==='Right'?-1:1;
     // panel cabeza
-    skin.forEach(o=>o.visible=true);sideObjs.forEach(it=>it.o.visible=true);
-    camFor(camH,BOX.head.c,BOX.head.d*2.2,new V3(lat*.25,.15,1).normalize(),Y);camH.aspect=split/h;camH.setViewOffset(split,h,0,h*.1,split,h);
+    shellSkin.forEach(o=>o.visible=shellMode===0);shellSkull.forEach(o=>o.visible=shellMode===1);sideObjs.forEach(it=>it.o.visible=true);
+    camFor(camH,BOX.head.c,BOX.head.d*2.3,new V3(0,0,1).normalize(),Y);camH.aspect=split/h;camH.setViewOffset(split,h,0,h*.1,split,h);
     R.setViewport(0,0,split,h);R.setScissor(0,0,split,h);R.render(scene,camH);
     // panel laberinto
-    skin.forEach(o=>o.visible=false);sideObjs.forEach(it=>it.o.visible=it.side===st.side);
+    shellSkin.forEach(o=>o.visible=false);shellSkull.forEach(o=>o.visible=false);sideObjs.forEach(it=>it.o.visible=it.side===st.side);
     const [dir,up]=viewDir();camFor(camL,BOX[st.side].c,BOX[st.side].d*1.75/ZOOMS[st.zoom],dir,up);camL.aspect=(w-split)/h;camL.setViewOffset(w-split,h,0,-h*.05,w-split,h);
     R.setViewport(split,0,w-split,h);R.setScissor(split,0,w-split,h);R.render(scene,camL);
   }
@@ -313,6 +307,7 @@ $('#bMenu').addEventListener('click',()=>{$('#start').style.display='';$('#rot')
 $('#bRst').addEventListener('click',()=>{seed();toast('Otoconias reiniciadas',1500)});
 $('#bAdd').addEventListener('click',()=>{const k=st.side+'_'+st.canal;addCluster(k,lowestS(k,qHead),8);toast('Otoconias añadidas en la parte más baja del canal',1500)});
 $('#bCen').addEventListener('click',()=>{recenter();toast(touchMode?'Cabeza erguida':'Recentrado: posición actual = mirando al frente',1800)});
+$('#bHead').addEventListener('click',()=>{shellMode=(shellMode+1)%3;$('#bHead').textContent='Cabeza: '+['piel','cráneo','oculta'][shellMode]});
 $('#bView').addEventListener('click',()=>{st.view=(st.view+1)%VIEWS.length;setLabels()});
 $('#bZoom').addEventListener('click',()=>{st.zoom=(st.zoom+1)%ZOOMS.length;setLabels()});
 $('#bSpd').addEventListener('click',()=>{st.spd=(st.spd+1)%SPEEDS.length;setLabels()});
