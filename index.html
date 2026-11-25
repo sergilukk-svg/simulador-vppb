@@ -85,7 +85,7 @@ button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:7
     <div class="q">Lado afectado</div>
     <div class="seg" data-k="side"><button data-v="Right">Derecho</button><button data-v="Left">Izquierdo</button></div>
     <div class="q">Canal</div>
-    <div class="seg" data-k="canal"><button data-v="Posterior">Posterior</button><button data-v="Lateral">Lateral (geotrópico)</button><button data-v="Anterior">Anterior</button></div>
+    <div class="seg" data-k="canal"><button data-v="Posterior">Posterior</button><button data-v="Lateral">Lateral geotrópico</button><button data-v="LateralApo">Lateral apogeotrópico</button><button data-v="Anterior">Anterior</button></div>
     <button id="go">Empezar</button>
   </div>
 </div></div>
@@ -108,6 +108,8 @@ const D=window.DATOS, LUMEN=D.lumen;
 const st={side:'Right',canal:'Posterior',view:0,zoom:0,spd:2};
 const VIEWS=['lateral','frontal','superior'], ZOOMS=[1,1.6,2.4], SPEEDS=[1,3,5,10];
 const ES={Posterior:'posterior',Lateral:'lateral',Anterior:'anterior'};
+const LBL={Posterior:'Posterior',Lateral:'Lateral geotrópico',LateralApo:'Lateral apogeotrópico',Anterior:'Anterior'};
+const CK=()=>st.canal==='LateralApo'?'Lateral':st.canal;
 try{const s=JSON.parse(localStorage.getItem('vppb2')||'{}');if(s.side)st.side=s.side;if(s.canal)st.canal=s.canal}catch(e){}
 document.querySelectorAll('.seg').forEach(seg=>{
   seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===st[seg.dataset.k]));
@@ -151,10 +153,10 @@ function addStone(canal,s){if(parts.length>=MAXP)return;const r=.012+Math.random
   parts.push({canal,s:THREE.MathUtils.clamp(s,.1,P[canal].L-.2),r,vt:.35*Math.pow(r/.028,2)*(.8+Math.random()*.4),jit:Math.random()*2-1,
     q:new Q().setFromEuler(new THREE.Euler(Math.random()*6.3,Math.random()*6.3,Math.random()*6.3)),sq:new V3(.8+Math.random()*.4,.8+Math.random()*.4,.8+Math.random()*.4),state:'canal',v:0})}
 function addCluster(canal,s,n){for(let i=0;i<n;i++)addStone(canal,s+(Math.random()*2-1)*.18)}
-function lowestS(k,qh){ // punto más bajo del canal (primer 60 %, brazo ampular) con la postura indicada
-  const g=new V3(0,-1,0).applyQuaternion(qh.clone().invert()),p=new V3();let best=.3,lo=1e9;
-  for(let s=.3;s<P[k].L*.6;s+=.05){sample(k,s,p);const h=-p.dot(g);if(h<lo){lo=h;best=s}}return best}
-function seed(){parts.length=0;const k=st.side+'_'+st.canal;addCluster(k,lowestS(k,new Q()),14)}
+function lowestS(k,qh,f0,f1){f0=f0||0;f1=f1||.6; // punto más bajo del canal (primer 60 %, brazo ampular) con la postura indicada
+  const g=new V3(0,-1,0).applyQuaternion(qh.clone().invert()),p=new V3();let best=Math.max(.3,P[k].L*f0),lo=1e9;
+  for(let s=Math.max(.3,P[k].L*f0);s<P[k].L*f1;s+=.05){sample(k,s,p);const h=-p.dot(g);if(h<lo){lo=h;best=s}}return best}
+function seed(){parts.length=0;const k=st.side+'_'+CK();addCluster(k,st.canal==='LateralApo'?.7:lowestS(k,new Q(),st.canal==='Lateral'?.45:0,st.canal==='Lateral'?.9:.6),14)}
 
 /* ---------- postura ---------- */
 const qDev=new Q(),qHead=new Q(),qTouch=new Q(),qYaw=new Q(),q1=new Q(-Math.sqrt(.5),0,0,Math.sqrt(.5)),q0=new Q(),eul=new THREE.Euler(),Z=new V3(0,0,1),Y=new V3(0,1,0);
@@ -172,7 +174,7 @@ const gL=new V3(),tp=new V3(),tt=new V3(),gp=new V3(),e2=new V3(),pos=new V3(),m
 let flowV=0;
 function step(dt){
   gL.set(0,-1,0).applyQuaternion(qHead.clone().invert());
-  let sum=0,n=0;const sel=st.side+'_'+st.canal;
+  let sum=0,n=0;const sel=st.side+'_'+CK();
   for(const p of parts){
     if(p.state==='transit'){const tgt=UTRC[p.side].clone().add(p.uo),d=Math.max(.05,p.from.distanceTo(tgt));p.k=Math.min(1,p.k+p.vt*.6*dt/d);if(p.k>=1)p.state='utr';continue}
     if(p.state!=='canal')continue;
@@ -202,7 +204,7 @@ function posture(g){
   return ax[0][1]>.8?ax[0][0]:`${ax[0][0]} → ${ax[1][0].toLowerCase()}`}
 function nyText(v){
   if(Math.abs(v)<.004)return 'Sin flujo · sin nistagmo';
-  const fug=v>0,c=st.canal,aff=st.side==='Right'?'derecho':'izquierdo',oth=st.side==='Right'?'izquierdo':'derecho',ex=c==='Lateral'?!fug:fug;
+  const fug=v>0,c=CK(),aff=st.side==='Right'?'derecho':'izquierdo',oth=st.side==='Right'?'izquierdo':'derecho',ex=c==='Lateral'?!fug:fug;
   const tag=ex?'<b style="color:var(--ok)">Excitatorio.</b> ':'<b style="color:var(--bad)">Inhibitorio.</b> ';
   if(c==='Posterior')return tag+(ex?`Vertical hacia arriba + torsional hacia el oído ${aff}.`:'Nistagmo inverso y débil.');
   if(c==='Anterior')return tag+(ex?`Vertical hacia abajo + torsional hacia el oído ${aff}.`:'Nistagmo inverso y débil.');
@@ -286,13 +288,13 @@ function frame(now){
     $('#pos').textContent=posture(g);$('#tilt').textContent=`Inclinación respecto a la vertical: ${Math.round(Math.acos(THREE.MathUtils.clamp(-g.y,-1,1))/D2R)}°`;
     const m=THREE.MathUtils.clamp(flowV/.15,-1,1),mi=$('#mi');mi.style.width=Math.abs(m)*50+'%';mi.style.left=m<0?(50+m*50)+'%':'50%';
     $('#ny').innerHTML=nyText(flowV);
-    const sel=st.side+'_'+st.canal,inC=parts.filter(p=>p.state==='canal').length,inS=parts.filter(p=>p.state==='canal'&&p.canal===sel).length,o=$('#otos');
-    o.textContent=parts.length&&!inC?'Canales libres: otoconias en el utrículo ✓':`En el canal ${ES[st.canal]}: ${inS} · otros canales: ${inC-inS} · utrículo: ${parts.length-inC}`;o.classList.toggle('ok',parts.length>0&&!inC)}
+    const sel=st.side+'_'+CK(),inC=parts.filter(p=>p.state==='canal').length,inS=parts.filter(p=>p.state==='canal'&&p.canal===sel).length,o=$('#otos');
+    o.textContent=parts.length&&!inC?'Canales libres: otoconias en el utrículo ✓':`En el canal ${ES[CK()]}: ${inS} · otros canales: ${inC-inS} · utrículo: ${parts.length-inC}`;o.classList.toggle('ok',parts.length>0&&!inC)}
   requestAnimationFrame(frame)}
 
 /* ---------- inicio y botones ---------- */
-function setLabels(){$('#lbl').textContent=`Oído ${st.side==='Right'?'derecho':'izquierdo'} · ${ES[st.canal][0].toUpperCase()+ES[st.canal].slice(1)}`;
-  $('#lbl').style.background='#'+COL[st.canal].toString(16).padStart(6,'0');$('#bView').textContent='Vista: '+VIEWS[st.view];
+function setLabels(){$('#lbl').textContent=`Oído ${st.side==='Right'?'derecho':'izquierdo'} · ${LBL[st.canal]}`;
+  $('#lbl').style.background='#'+COL[CK()].toString(16).padStart(6,'0');$('#bView').textContent='Vista: '+VIEWS[st.view];
   $('#bZoom').textContent='Zoom '+ZOOMS[st.zoom]+'×';$('#bSpd').textContent='Velocidad ×'+SPEEDS[st.spd]}
 $('#go').addEventListener('click',()=>{
   try{localStorage.setItem('vppb2',JSON.stringify({side:st.side,canal:st.canal}))}catch(e){}
@@ -305,7 +307,7 @@ $('#go').addEventListener('click',()=>{
   setTimeout(()=>{if(!sensor){touchMode=true;toast('Sin sensores de movimiento: arrastra con el dedo para girar la cabeza.',5000)}},1500)});
 $('#bMenu').addEventListener('click',()=>{$('#start').style.display='';$('#rot').classList.remove('need');started=false});
 $('#bRst').addEventListener('click',()=>{seed();toast('Otoconias reiniciadas',1500)});
-$('#bAdd').addEventListener('click',()=>{const k=st.side+'_'+st.canal;addCluster(k,lowestS(k,qHead),8);toast('Otoconias añadidas en la parte más baja del canal',1500)});
+$('#bAdd').addEventListener('click',()=>{const k=st.side+'_'+CK();const apo=st.canal==='LateralApo',geo=st.canal==='Lateral';addCluster(k,apo?.7:lowestS(k,qHead,geo?.45:0,geo?.9:.6),8);toast(apo?'Otoconias añadidas en el brazo anterior':geo?'Otoconias añadidas en el brazo posterior':'Otoconias añadidas en la parte más baja del canal',1500)});
 $('#bCen').addEventListener('click',()=>{recenter();toast(touchMode?'Cabeza erguida':'Recentrado: posición actual = mirando al frente',1800)});
 $('#bHead').addEventListener('click',()=>{shellMode=(shellMode+1)%3;$('#bHead').textContent='Cabeza: '+['piel','cráneo','oculta'][shellMode]});
 $('#bView').addEventListener('click',()=>{st.view=(st.view+1)%VIEWS.length;setLabels()});
@@ -329,7 +331,7 @@ async function open(pw){
 async function tryOpen(pw){el('pwe').textContent='Abriendo…';try{await open(pw)}catch(e){el('pwe').textContent=window.crypto&&crypto.subtle?'Contraseña incorrecta':'Ábrelo desde una dirección https'}}
 el('lf').addEventListener('submit',e=>{e.preventDefault();tryOpen(el('pw').value.trim())});
 let saved=null;try{saved=localStorage.getItem('vppb_pw')}catch(e){}
-if(saved)tryOpen(saved);
+if(saved)open(saved).catch(()=>{try{localStorage.removeItem('vppb_pw')}catch(e){}});
 }
 </script>
 </body>
