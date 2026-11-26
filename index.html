@@ -92,7 +92,8 @@ button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:7
 <div class="ov" id="lock" style="z-index:30"><form id="lf" style="width:min(380px,100%);display:grid;gap:10px">
   <h1 style="font-size:24px;margin:0">Simulador VPPB</h1>
   <p style="color:var(--mute);margin:0;font-size:14px">Introduce la contraseña para abrir el modelo anatómico.</p>
-  <input id="pw" type="password" autocomplete="current-password" style="font:inherit;font-size:16px;min-height:46px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:0 12px">
+  <input id="pw" type="password" autocomplete="current-password" autocapitalize="characters" autocorrect="off" spellcheck="false" style="font:inherit;font-size:16px;min-height:46px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:0 12px">
+  <label style="font-size:13px;color:var(--mute);display:flex;gap:8px;align-items:center"><input type="checkbox" id="pws" style="width:18px;height:18px"> Mostrar contraseña</label>
   <button id="pwb" style="min-height:46px;background:var(--ok);border-color:var(--ok);color:#06210f;font-weight:800">Abrir</button>
   <div id="pwe" style="color:var(--bad);font-size:13px;min-height:1.2em"></div>
 </form></div>
@@ -344,15 +345,18 @@ try{if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serv
 {
 const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0)),C=window.CIFRADO,el=id=>document.getElementById(id);
 async function open(pw){
-  const k0=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
-  const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(C.salt),iterations:200000,hash:'SHA-256'},k0,{name:'AES-GCM',length:256},false,['decrypt']);
-  const p=JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(C.iv)},k,b64(C.data))));
-  window.MODELO_B64=p.m;new Function(p.d)();
-  try{localStorage.setItem('vppb_pw',pw)}catch(e){}
-  el('lock').remove();new Function(el('app').textContent)();
+  let p;
+  try{const k0=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
+    const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(C.salt),iterations:200000,hash:'SHA-256'},k0,{name:'AES-GCM',length:256},false,['decrypt']);
+    p=JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(C.iv)},k,b64(C.data))))}
+  catch(e){throw new Error(window.crypto&&crypto.subtle?'Contraseña incorrecta':'Ábrelo desde una dirección https')}
+  try{window.MODELO_B64=p.m;new Function(p.d)();try{localStorage.setItem('vppb_pw',pw)}catch(e){}
+    el('lock').remove();new Function(el('app').textContent)()}
+  catch(e){throw new Error('La contraseña es correcta, pero la app no pudo arrancar: '+(e&&e.message||e))}
 }
-async function tryOpen(pw){el('pwe').textContent='Abriendo…';try{await open(pw)}catch(e){el('pwe').textContent=window.crypto&&crypto.subtle?'Contraseña incorrecta':'Ábrelo desde una dirección https'}}
-el('lf').addEventListener('submit',e=>{e.preventDefault();tryOpen(el('pw').value.trim())});
+async function tryOpen(pw){el('pwe').textContent='Abriendo…';try{await open(pw)}catch(e){el('pwe').textContent=e.message}}
+el('pws').addEventListener('change',e=>{el('pw').type=e.target.checked?'text':'password'});
+el('lf').addEventListener('submit',e=>{e.preventDefault();tryOpen(el('pw').value.replace(/\s+/g,'').replace(/[‐-―−]/g,'-').toUpperCase())});
 let saved=null;try{saved=localStorage.getItem('vppb_pw')}catch(e){}
 if(saved)open(saved).catch(()=>{try{localStorage.removeItem('vppb_pw')}catch(e){}});
 }
